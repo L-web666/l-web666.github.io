@@ -87,11 +87,40 @@
         #previewCanvas {
             max-width: 100%;
             cursor: move;
+            touch-action: none;
         }
         .tip {
             font-size: 12px;
             color: #666;
             margin-top: 4px;
+        }
+        @media (max-width: 768px) {
+            body {
+                padding: 12px;
+            }
+            h1 {
+                font-size: 18px !important;
+                margin-bottom: 12px !important;
+                text-align: center;
+            }
+            .container {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+            .panel {
+                padding: 16px;
+            }
+            .preview-box {
+                min-height: 300px;
+                order: -1;
+            }
+            .btn-row {
+                display: flex;
+                gap: 10px;
+            }
+            .btn-row button {
+                flex: 1;
+            }
         }
     </style>
 </head>
@@ -112,7 +141,7 @@
                     <option value="tile">全屏平铺水印</option>
                     <option value="single">单行角落水印</option>
                 </select>
-                <div class="tip">单行模式可鼠标拖动水印位置</div>
+                <div class="tip">单行模式可鼠标/触摸拖动水印位置</div>
             </div>
 
             <div class="control-group">
@@ -171,8 +200,10 @@
                 </div>
             </div>
 
-            <button class="btn-primary" id="renderBtn">生成水印预览</button>
-            <button class="btn-success" id="downloadBtn">下载带水印图片</button>
+            <div class="btn-row">
+                <button class="btn-primary" id="renderBtn">生成水印预览</button>
+                <button class="btn-success" id="downloadBtn">下载带水印图片</button>
+            </div>
         </div>
 
         <!-- 右侧预览画布 -->
@@ -270,47 +301,108 @@
 
         function getHitBox() {
             const size = Number(waterSize.value);
-            let boxW = size, boxH = size;
+            let boxW, boxH;
             if (waterType.value === 'text') {
                 ctx.font = `${size}px sans-serif`;
                 boxW = ctx.measureText(waterText.value).width;
+                boxH = size * 1.2;
+            } else {
+                boxW = size;
                 boxH = size;
             }
-            return { x: singleX, y: singleY - boxH, w: boxW, h: boxH };
+            const diagonal = Math.sqrt(boxW * boxW + boxH * boxH);
+            const pad = Math.max(40, size);
+            return {
+                x: singleX - pad,
+                y: singleY - diagonal - pad,
+                w: diagonal + pad * 2,
+                h: diagonal + pad * 2
+            };
         }
 
-        canvas.addEventListener('mousedown', e=>{
-            if(renderMode.value !== 'single' || !sourceImg) return;
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            const mx = (e.clientX - rect.left) * scaleX;
-            const my = (e.clientY - rect.top) * scaleY;
-            const box = getHitBox();
-            if(mx >= box.x && mx <= box.x+box.w && my >= box.y && my <= box.y+box.h){
-                isDrag = true;
-                dragOffsetX = mx - singleX;
-                dragOffsetY = my - singleY;
+        function drawDragHighlight() {
+            if (renderMode.value !== 'single' || !sourceImg) return;
+            const size = Number(waterSize.value);
+            let boxW, boxH;
+            if (waterType.value === 'text') {
+                ctx.font = `${size}px sans-serif`;
+                boxW = ctx.measureText(waterText.value).width;
+                boxH = size * 1.2;
+            } else {
+                boxW = size;
+                boxH = size;
             }
-        })
-        canvas.addEventListener('mousemove', e=>{
-            if(!isDrag || renderMode.value !== 'single') return;
+            ctx.save();
+            ctx.globalAlpha = 0.4;
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = Math.max(2, canvas.width / 500);
+            ctx.setLineDash([Math.max(8, canvas.width / 200), Math.max(6, canvas.width / 300)]);
+            ctx.translate(singleX, singleY);
+            ctx.rotate(Number(waterRotate.value) * Math.PI / 180);
+            ctx.strokeRect(-4, -boxH - 4, boxW + 8, boxH + 8);
+            ctx.restore();
+        }
+
+        function getPointerPos(e) {
             const rect = canvas.getBoundingClientRect();
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
-            singleX = (e.clientX - rect.left) * scaleX - dragOffsetX;
-            singleY = (e.clientY - rect.top) * scaleY - dragOffsetY;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        }
+
+        function moveWatermark(pos) {
+            singleX = pos.x - dragOffsetX;
+            singleY = pos.y - dragOffsetY;
             if (!dragRafId) {
                 dragRafId = requestAnimationFrame(() => {
                     renderBtn.click();
                     dragRafId = null;
                 });
             }
+        }
+
+        canvas.addEventListener('mousedown', e=>{
+            if(renderMode.value !== 'single' || !sourceImg) return;
+            const pos = getPointerPos(e);
+            const box = getHitBox();
+            if(pos.x >= box.x && pos.x <= box.x+box.w && pos.y >= box.y && pos.y <= box.y+box.h){
+                isDrag = true;
+                dragOffsetX = pos.x - singleX;
+                dragOffsetY = pos.y - singleY;
+            }
+        })
+        canvas.addEventListener('mousemove', e=>{
+            if(!isDrag || renderMode.value !== 'single') return;
+            const pos = getPointerPos(e);
+            moveWatermark(pos);
         })
         canvas.addEventListener('mouseup', ()=>isDrag=false);
         canvas.addEventListener('mouseleave', ()=>isDrag=false);
 
-        function renderWatermark() {
+        canvas.addEventListener('touchstart', e=>{
+            if(renderMode.value !== 'single' || !sourceImg) return;
+            e.preventDefault();
+            const pos = getPointerPos(e.touches[0]);
+            const box = getHitBox();
+            if(pos.x >= box.x && pos.x <= box.x+box.w && pos.y >= box.y && pos.y <= box.y+box.h){
+                isDrag = true;
+                dragOffsetX = pos.x - singleX;
+                dragOffsetY = pos.y - singleY;
+            }
+        }, {passive: false})
+        canvas.addEventListener('touchmove', e=>{
+            if(!isDrag || renderMode.value !== 'single') return;
+            e.preventDefault();
+            const pos = getPointerPos(e.touches[0]);
+            moveWatermark(pos);
+        }, {passive: false})
+        canvas.addEventListener('touchend', ()=>isDrag=false);
+        canvas.addEventListener('touchcancel', ()=>isDrag=false);
+
+        function renderWatermark(forExport) {
             if (!sourceImg) return alert("请先上传图片！");
             if (waterType.value === 'logo' && !logoImg) return alert("请上传Logo图片！");
             drawSource();
@@ -376,6 +468,7 @@
                     ctx.restore();
                 }
             }
+            if (!forExport) drawDragHighlight();
             ctx.globalAlpha = 1;
         }
 
@@ -383,10 +476,12 @@
 
         downloadBtn.onclick = () => {
             if (!sourceImg) return alert("请先上传图片并生成水印");
+            renderWatermark(true);
             const link = document.createElement('a');
             link.download = '带水印图片.png';
             link.href = canvas.toDataURL('image/png');
             link.click();
+            renderWatermark();
         }
     </script>
 </body>
