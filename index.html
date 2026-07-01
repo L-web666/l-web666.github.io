@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片水印工具 - 平铺/单行水印双模式</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: system-ui, sans-serif;
+        }
+        body {
+            background: #f5f7fa;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 24px;
+        }
+        .panel {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
+        h2 {
+            margin-bottom: 16px;
+            color: #222;
+            font-size: 18px;
+        }
+        .control-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: #444;
+        }
+        input[type="text"], input[type="range"], input[type="file"], select, input[type="color"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        .range-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .range-row span {
+            width: 40px;
+            text-align: right;
+            font-size: 14px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+        .btn-success {
+            background: #16a34a;
+            color: white;
+        }
+        .preview-box {
+            background: #eee;
+            min-height: 600px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: auto;
+            position: relative;
+        }
+        #previewCanvas {
+            max-width: 100%;
+            cursor: move;
+        }
+        .tip {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="margin-bottom:20px;font-size:22px;">图片水印生成器（平铺/单行水印）</h1>
+    <div class="container">
+        <!-- 左侧控制面板 -->
+        <div class="panel">
+            <h2>操作设置</h2>
+            <div class="control-group">
+                <label>上传原图</label>
+                <input type="file" id="imgUpload" accept="image/*">
+            </div>
+
+            <div class="control-group">
+                <label>水印渲染模式</label>
+                <select id="renderMode">
+                    <option value="tile">全屏平铺水印</option>
+                    <option value="single">单行角落水印</option>
+                </select>
+                <div class="tip">单行模式可鼠标拖动水印位置</div>
+            </div>
+
+            <div class="control-group">
+                <label>水印类型</label>
+                <select id="waterType">
+                    <option value="text">文字水印</option>
+                    <option value="logo">图片Logo水印</option>
+                </select>
+            </div>
+
+            <div class="control-group" id="textPanel">
+                <label>水印文字</label>
+                <input type="text" id="waterText" value="版权所有 ©2026">
+            </div>
+
+            <div class="control-group" id="logoPanel" style="display:none;">
+                <label>上传Logo（透明PNG最佳）</label>
+                <input type="file" id="logoUpload" accept="image/*">
+            </div>
+
+            <div class="control-group">
+                <label>水印大小</label>
+                <div class="range-row">
+                    <input type="range" id="waterSize" min="20" max="150" value="60">
+                    <span id="sizeVal">60</span>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>透明度</label>
+                <div class="range-row">
+                    <input type="range" id="waterAlpha" min="10" max="100" value="30">
+                    <span id="alphaVal">30%</span>
+                </div>
+                <div class="tip">平铺防盗建议10~40%</div>
+            </div>
+
+            <div class="control-group">
+                <label>水印颜色</label>
+                <input type="color" id="waterColor" value="#000000">
+            </div>
+
+            <div class="control-group">
+                <label>水印旋转角度</label>
+                <div class="range-row">
+                    <input type="range" id="waterRotate" min="0" max="45" value="20">
+                    <span id="rotateVal">20°</span>
+                </div>
+            </div>
+
+            <div class="control-group" id="gapGroup">
+                <label>水印间距（仅平铺模式生效）</label>
+                <div class="range-row">
+                    <input type="range" id="waterGap" min="30" max="200" value="80">
+                    <span id="gapVal">80</span>
+                </div>
+            </div>
+
+            <button class="btn-primary" id="renderBtn">生成水印预览</button>
+            <button class="btn-success" id="downloadBtn">下载带水印图片</button>
+        </div>
+
+        <!-- 右侧预览画布 -->
+        <div class="panel preview-box">
+            <canvas id="previewCanvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // 元素获取
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+        const imgUpload = document.getElementById('imgUpload');
+        const logoUpload = document.getElementById('logoUpload');
+        const renderMode = document.getElementById('renderMode');
+        const waterType = document.getElementById('waterType');
+        const textPanel = document.getElementById('textPanel');
+        const logoPanel = document.getElementById('logoPanel');
+        const gapGroup = document.getElementById('gapGroup');
+        const waterText = document.getElementById('waterText');
+        const waterSize = document.getElementById('waterSize');
+        const sizeVal = document.getElementById('sizeVal');
+        const waterAlpha = document.getElementById('waterAlpha');
+        const alphaVal = document.getElementById('alphaVal');
+        const waterColor = document.getElementById('waterColor');
+        const waterRotate = document.getElementById('waterRotate');
+        const rotateVal = document.getElementById('rotateVal');
+        const waterGap = document.getElementById('waterGap');
+        const gapVal = document.getElementById('gapVal');
+        const renderBtn = document.getElementById('renderBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        // 全局缓存
+        let sourceImg = null;
+        let logoImg = null;
+        // 单行水印坐标
+        let singleX = 50;
+        let singleY = 50;
+        let isDrag = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        // 切换模式：隐藏/显示间距设置
+        renderMode.onchange = () => {
+            gapGroup.style.display = renderMode.value === 'tile' ? 'block' : 'none';
+        }
+
+        // 切换水印类型面板
+        waterType.onchange = () => {
+            if (waterType.value === 'text') {
+                textPanel.style.display = 'block';
+                logoPanel.style.display = 'none';
+            } else {
+                textPanel.style.display = 'none';
+                logoPanel.style.display = 'block';
+            }
+        };
+
+        // 滑块数值实时显示
+        waterSize.oninput = () => sizeVal.innerText = waterSize.value;
+        waterAlpha.oninput = () => alphaVal.innerText = waterAlpha.value + '%';
+        waterRotate.oninput = () => rotateVal.innerText = waterRotate.value + '°';
+        waterGap.oninput = () => gapVal.innerText = waterGap.value;
+
+        // 上传原图
+        imgUpload.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                sourceImg = new Image();
+                sourceImg.src = ev.target.result;
+                sourceImg.onload = () => {
+                    canvas.width = sourceImg.width;
+                    canvas.height = sourceImg.height;
+                    singleX = canvas.width - 120;
+                    singleY = canvas.height - 80;
+                    drawSource();
+                }
+            }
+            reader.readAsDataURL(file);
+        };
+
+        // 上传Logo
+        logoUpload.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                logoImg = new Image();
+                logoImg.src = ev.target.result;
+            }
+            reader.readAsDataURL(file);
+        };
+
+        // 绘制原图底层
+        function drawSource() {
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            if(sourceImg) ctx.drawImage(sourceImg,0,0);
+        }
+
+        // 画布拖动单行水印
+        canvas.addEventListener('mousedown', e=>{
+            if(renderMode.value !== 'single' || !sourceImg) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mx = (e.clientX - rect.left) * scaleX;
+            const my = (e.clientY - rect.top) * scaleY;
+            const size = Number(waterSize.value);
+            if(mx >= singleX && mx <= singleX+size && my >= singleY && my <= singleY+size){
+                isDrag = true;
+                dragOffsetX = mx - singleX;
+                dragOffsetY = my - singleY;
+            }
+        })
+        canvas.addEventListener('mousemove', e=>{
+            if(!isDrag || renderMode.value !== 'single') return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            singleX = (e.clientX - rect.left) * scaleX - dragOffsetX;
+            singleY = (e.clientY - rect.top) * scaleY - dragOffsetY;
+            renderBtn.click();
+        })
+        canvas.addEventListener('mouseup', ()=>isDrag=false);
+        canvas.addEventListener('mouseleave', ()=>isDrag=false);
+
+        // 生成水印
+        renderBtn.onclick = () => {
+            if (!sourceImg) return alert("请先上传图片！");
+            drawSource();
+
+            const size = Number(waterSize.value);
+            const alpha = Number(waterAlpha.value) / 100;
+            const rotate = Number(waterRotate.value) * Math.PI / 180;
+            const gap = Number(waterGap.value);
+            const color = waterColor.value;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            ctx.globalAlpha = alpha;
+
+            if(renderMode.value === 'tile'){
+                // 全屏平铺模式
+                if (waterType.value === 'text') {
+                    const text = waterText.value;
+                    ctx.font = `${size}px sans-serif`;
+                    ctx.fillStyle = color;
+                    let x = -size, y = -size;
+                    while (y < h + size) {
+                        while (x < w + size) {
+                            ctx.save();
+                            ctx.translate(x, y);
+                            ctx.rotate(rotate);
+                            ctx.fillText(text, 0, 0);
+                            ctx.restore();
+                            x += gap + size * 1.8;
+                        }
+                        x = -size;
+                        y += gap + size;
+                    }
+                } else {
+                    if (!logoImg) return alert("请上传Logo图片！");
+                    let x = -size, y = -size;
+                    while (y < h + size) {
+                        while (x < w + size) {
+                            ctx.save();
+                            ctx.translate(x, y);
+                            ctx.rotate(rotate);
+                            ctx.filter = `drop-shadow(0 0 0 ${color})`;
+                            ctx.drawImage(logoImg, 0, 0, size, size);
+                            ctx.filter = 'none';
+                            ctx.restore();
+                            x += gap + size;
+                        }
+                        x = -size;
+                        y += gap + size;
+                    }
+                }
+            }else{
+                // 单行单水印模式
+                if (waterType.value === 'text') {
+                    const text = waterText.value;
+                    ctx.font = `${size}px sans-serif`;
+                    ctx.fillStyle = color;
+                    ctx.save();
+                    ctx.translate(singleX, singleY);
+                    ctx.rotate(rotate);
+                    ctx.fillText(text, 0, 0);
+                    ctx.restore();
+                } else {
+                    if (!logoImg) return alert("请上传Logo图片！");
+                    ctx.save();
+                    ctx.translate(singleX, singleY);
+                    ctx.rotate(rotate);
+                    ctx.filter = `drop-shadow(0 0 0 ${color})`;
+                    ctx.drawImage(logoImg, 0, 0, size, size);
+                    ctx.filter = 'none';
+                    ctx.restore();
+                }
+            }
+            ctx.globalAlpha = 1;
+        };
+
+        // 下载图片
+        downloadBtn.onclick = () => {
+            if (!sourceImg) return alert("请先上传图片并生成水印");
+            const link = document.createElement('a');
+            link.download = '带水印图片.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+    </script>
+</body>
+</html>
