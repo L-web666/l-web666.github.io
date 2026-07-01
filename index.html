@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>图片水印工具 - 平铺/单行水印双模式</title>
-        <style>
+    <style>
         * {
             margin: 0;
             padding: 0;
@@ -182,7 +182,6 @@
     </div>
 
     <script>
-        // 元素获取
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
         const imgUpload = document.getElementById('imgUpload');
@@ -205,22 +204,19 @@
         const renderBtn = document.getElementById('renderBtn');
         const downloadBtn = document.getElementById('downloadBtn');
 
-        // 全局缓存
         let sourceImg = null;
         let logoImg = null;
-        // 单行水印坐标
         let singleX = 50;
         let singleY = 50;
         let isDrag = false;
         let dragOffsetX = 0;
         let dragOffsetY = 0;
+        let dragRafId = null;
 
-        // 切换模式：隐藏/显示间距设置
         renderMode.onchange = () => {
             gapGroup.style.display = renderMode.value === 'tile' ? 'block' : 'none';
         }
 
-        // 切换水印类型面板
         waterType.onchange = () => {
             if (waterType.value === 'text') {
                 textPanel.style.display = 'block';
@@ -231,19 +227,18 @@
             }
         };
 
-        // 滑块数值实时显示
-        waterSize.oninput = () => sizeVal.innerText = waterSize.value;
-        waterAlpha.oninput = () => alphaVal.innerText = waterAlpha.value + '%';
-        waterRotate.oninput = () => rotateVal.innerText = waterRotate.value + '°';
-        waterGap.oninput = () => gapVal.innerText = waterGap.value;
+        waterSize.oninput = () => sizeVal.textContent = waterSize.value;
+        waterAlpha.oninput = () => alphaVal.textContent = waterAlpha.value + '%';
+        waterRotate.oninput = () => rotateVal.textContent = waterRotate.value + '°';
+        waterGap.oninput = () => gapVal.textContent = waterGap.value;
 
-        // 上传原图
         imgUpload.onchange = e => {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = ev => {
                 sourceImg = new Image();
+                sourceImg.onerror = () => alert("图片加载失败，请检查文件是否损坏！");
                 sourceImg.src = ev.target.result;
                 sourceImg.onload = () => {
                     canvas.width = sourceImg.width;
@@ -256,25 +251,34 @@
             reader.readAsDataURL(file);
         };
 
-        // 上传Logo
         logoUpload.onchange = e => {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = ev => {
                 logoImg = new Image();
+                logoImg.onerror = () => alert("Logo图片加载失败，请检查文件是否损坏！");
                 logoImg.src = ev.target.result;
             }
             reader.readAsDataURL(file);
         };
 
-        // 绘制原图底层
         function drawSource() {
             ctx.clearRect(0,0,canvas.width,canvas.height);
             if(sourceImg) ctx.drawImage(sourceImg,0,0);
         }
 
-        // 画布拖动单行水印
+        function getHitBox() {
+            const size = Number(waterSize.value);
+            let boxW = size, boxH = size;
+            if (waterType.value === 'text') {
+                ctx.font = `${size}px sans-serif`;
+                boxW = ctx.measureText(waterText.value).width;
+                boxH = size;
+            }
+            return { x: singleX, y: singleY - boxH, w: boxW, h: boxH };
+        }
+
         canvas.addEventListener('mousedown', e=>{
             if(renderMode.value !== 'single' || !sourceImg) return;
             const rect = canvas.getBoundingClientRect();
@@ -282,8 +286,8 @@
             const scaleY = canvas.height / rect.height;
             const mx = (e.clientX - rect.left) * scaleX;
             const my = (e.clientY - rect.top) * scaleY;
-            const size = Number(waterSize.value);
-            if(mx >= singleX && mx <= singleX+size && my >= singleY && my <= singleY+size){
+            const box = getHitBox();
+            if(mx >= box.x && mx <= box.x+box.w && my >= box.y && my <= box.y+box.h){
                 isDrag = true;
                 dragOffsetX = mx - singleX;
                 dragOffsetY = my - singleY;
@@ -296,14 +300,19 @@
             const scaleY = canvas.height / rect.height;
             singleX = (e.clientX - rect.left) * scaleX - dragOffsetX;
             singleY = (e.clientY - rect.top) * scaleY - dragOffsetY;
-            renderBtn.click();
+            if (!dragRafId) {
+                dragRafId = requestAnimationFrame(() => {
+                    renderBtn.click();
+                    dragRafId = null;
+                });
+            }
         })
         canvas.addEventListener('mouseup', ()=>isDrag=false);
         canvas.addEventListener('mouseleave', ()=>isDrag=false);
 
-        // 生成水印
-        renderBtn.onclick = () => {
+        function renderWatermark() {
             if (!sourceImg) return alert("请先上传图片！");
+            if (waterType.value === 'logo' && !logoImg) return alert("请上传Logo图片！");
             drawSource();
 
             const size = Number(waterSize.value);
@@ -317,7 +326,6 @@
             ctx.globalAlpha = alpha;
 
             if(renderMode.value === 'tile'){
-                // 全屏平铺模式
                 if (waterType.value === 'text') {
                     const text = waterText.value;
                     ctx.font = `${size}px sans-serif`;
@@ -336,16 +344,13 @@
                         y += gap + size;
                     }
                 } else {
-                    if (!logoImg) return alert("请上传Logo图片！");
                     let x = -size, y = -size;
                     while (y < h + size) {
                         while (x < w + size) {
                             ctx.save();
                             ctx.translate(x, y);
                             ctx.rotate(rotate);
-                            ctx.filter = `drop-shadow(0 0 0 ${color})`;
                             ctx.drawImage(logoImg, 0, 0, size, size);
-                            ctx.filter = 'none';
                             ctx.restore();
                             x += gap + size;
                         }
@@ -354,7 +359,6 @@
                     }
                 }
             }else{
-                // 单行单水印模式
                 if (waterType.value === 'text') {
                     const text = waterText.value;
                     ctx.font = `${size}px sans-serif`;
@@ -365,20 +369,18 @@
                     ctx.fillText(text, 0, 0);
                     ctx.restore();
                 } else {
-                    if (!logoImg) return alert("请上传Logo图片！");
                     ctx.save();
                     ctx.translate(singleX, singleY);
                     ctx.rotate(rotate);
-                    ctx.filter = `drop-shadow(0 0 0 ${color})`;
                     ctx.drawImage(logoImg, 0, 0, size, size);
-                    ctx.filter = 'none';
                     ctx.restore();
                 }
             }
             ctx.globalAlpha = 1;
-        };
+        }
 
-        // 下载图片
+        renderBtn.onclick = renderWatermark;
+
         downloadBtn.onclick = () => {
             if (!sourceImg) return alert("请先上传图片并生成水印");
             const link = document.createElement('a');
